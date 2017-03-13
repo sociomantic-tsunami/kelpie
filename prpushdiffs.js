@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.5
+// @version      0.6
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*/*/pull/*
@@ -430,7 +430,7 @@ function drawButtons ( shas )
 
             if (time !== undefined)
                 formatted_time = time.getDate() + "." +
-                                 time.getMonth()+1 + "." +
+                                 (time.getMonth()+1) + "." +
                                  time.getFullYear() + " " +
                                  time.getHours() + ":" +
                                  time.getMinutes();
@@ -469,7 +469,7 @@ function fetchDelayed ( )
 
     var css_style = GM_getResourceText ("CSSDIFF");
     GM_addStyle (css_style);
-  
+
     // Add button to set up github API access
     if (!GM_getValue("username") || !GM_getValue("token") || !GM_getValue("jenkins"))
     {
