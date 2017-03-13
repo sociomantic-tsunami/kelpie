@@ -140,7 +140,13 @@ class Fetcher
     {
         function fetchCommitCb ()
         {
-            console.log("Received data..");
+            if (this.status == 401)
+            {
+                GM_setValue("token", "");
+                alert("Authentication error, please reenter your token!");
+                askCredentials();
+                return;                
+            }
             var response = JSON.parse(this.responseText);
 
             console.log(response);
@@ -225,6 +231,11 @@ function deleteYourself ( ) { this.outerHTML = ""; }
 // Renders a box with user/token fields and button to ask for credentials
 function askCredentials ( )
 {
+    if(document.getElementById("github-credentials-box"))
+        return;
+    
+    console.log("Asking credentials");
+    
     var box = document.createElement("DIV");
     box.style.backgroundColor = "white";
     box.style.position = "fixed";
@@ -239,13 +250,22 @@ function askCredentials ( )
     var textfield_token = document.createElement("INPUT");
 
     textfield_user.type = "text";
-    textfield_user.value = "User";
+    
+    var user = GM_getValue("username");    
+    if (!user)
+        user = "Username";
+    
+    textfield_user.value = user;
     textfield_user.id = "github-user";
 
     textfield_token.type = "text";
     textfield_token.value = "Github Token";
     textfield_token.id = "github-token";
-
+    
+    var note = document.createElement("P");
+    note.href = "https://github.com/settings/tokens";
+    note.innerHTML = "The token required here can be created at <a href=\"https://github.com/settings/tokens\">your settings page</a>.<br>Required scope is 'repo'.";
+  
     var button = document.createElement("BUTTON");
     button.className = "btn";
     button.innerText = "Save";
@@ -255,6 +275,7 @@ function askCredentials ( )
     box.appendChild(textfield_user);
     box.appendChild(textfield_token);
     box.appendChild(button);
+    box.appendChild(note);
 
     document.body.appendChild(box);
 }
@@ -267,9 +288,6 @@ function saveCredentials ( )
 
     GM_setValue("username", user.value);
     GM_setValue("token", token.value);
-
-    var button = document.getElementById("credentials-button");
-    button.outerHTML = "";
 
     var box = document.getElementById("github-credentials-box");
     box.outerHTML = "";
@@ -310,13 +328,13 @@ function fetchUpdates ( )
     // Create a new request object
     GM_xmlhttpRequest({
         method: "GET",
-        url: 'https://ci.sociomantic.com//userContent/'+owner+'/'+repo+'/' + prid ,
-        onload: function () { drawButtons(this.responseText); }});
-
-    
-
-    //https://ci.sociomantic.com//userContent/sociomantic/playground/PR
-    //drawButtons("7fb0fcc\nca22c08\n6d413c6\nee2a6df");
+        url: 'https://ci.sociomantic.com/userContent/'+owner+'/'+repo+'/' + prid + "?cachebust=" + Date.now() ,
+        onload: function () {
+            if (this.status == 200)
+                drawButtons(this.responseText);
+            else
+                console.log("Received status " + this.status);
+        }});
 }
 
 // Draws one button for each pair of shas in the \n separated list
@@ -328,9 +346,8 @@ function drawButtons ( shas )
     {
         sidebar.removeEventListener ('DOMSubtreeModified', fetchDelayed);
     }
+    
     var sha_list = shas.split("\n");
-
-    console.log("sha_list: " + sha_list);
 
     var base, head, update;
 
@@ -368,17 +385,35 @@ function drawButtons ( shas )
         if (sha_list[i].length == 0)
             continue;
 
+        var sha_data = sha_list[i].split(";");
+        var sha = sha_data[0];
+        var time;
+
+        if (sha_data[1] !== undefined)
+            time = new Date(parseInt(sha_data[1]) * 1000);
+
         if (base === undefined)
         {
-            base = sha_list[i];
+            base = sha;
             continue;
         }
 
-        head = sha_list[i];
+        head = sha;
 
         // Don't remake a button that already exists
         if (!document.getElementById("diffbutton-" + update))
-            makeButton("Update Diff " + update, makeShowDiffFunc(), "diffbutton-" + update);
+        {
+            var formatted_time = update;
+
+            if (time !== undefined)
+                formatted_time = time.getDate() + "." +
+                                 time.getMonth()+1 + "." +
+                                 time.getFullYear() + " " +
+                                 time.getHours() + ":" +
+                                 time.getMinutes();
+
+            makeButton("Update " + formatted_time, makeShowDiffFunc(), "diffbutton-" + update);
+        }
 
         update++;
         base = undefined;
