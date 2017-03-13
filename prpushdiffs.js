@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.4
+// @version      0.5
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*/*/pull/*
@@ -33,7 +33,6 @@ class Fetcher
         this.repo = repo;
         this.element = element;
 
-        console.log("element : " + this.element);
         this.usertoken = GM_getValue("username") + ":" + GM_getValue("token");
 
         this.fetchCommit(commit1, "base");
@@ -43,8 +42,6 @@ class Fetcher
 
     allDone ( )
     {
-        console.log("All Done, base: " + this.base_done + " update: " + this.update_done);
-
         // Fetch any missing file versions
         if (!this.base_done || !this.update_done)
             return;
@@ -78,8 +75,6 @@ class Fetcher
 
         function receiveFile ( )
         {
-            console.log("Receiving file " + file);
-
             var response = JSON.parse(this.responseText);
 
             var found = false;
@@ -131,7 +126,7 @@ class Fetcher
         request.onload = receiveFile;
         // Initialize a request
         request.open('get', "https://api.github.com/repos/"+this.owner+"/"+this.repo+"/contents/" + file + "?ref=" + commit);
-        console.log("Auth token: " + this.usertoken);
+
         request.setRequestHeader("Authorization", "Basic " + btoa(this.usertoken));
         // Send it
         request.send();
@@ -158,8 +153,7 @@ class Fetcher
                         type, i == response.files.length-1);
             }
         }
-
-        console.log("fetching commit " + commit);
+      
         // Create a new request object
         var request = new XMLHttpRequest();
 
@@ -168,11 +162,9 @@ class Fetcher
         // Initialize a request
         request.open('get', 'https://api.github.com/repos/'+this.owner+'/'+this.repo+'/commits/' + commit);
         request.setRequestHeader("Authorization", "Basic " + btoa(this.usertoken));
-      console.log("Auth token: " + this.usertoken);
+
         // Send it
         request.send();
-
-        console.log("sent");
     }
 
     diffUsingJS ( viewType, reset )
@@ -466,7 +458,6 @@ function fetchDelayed ( )
         return;
     }
 
-    console.log("Fetch delayed triggered!");
     var sidebar = document.getElementsByClassName("discussion-sidebar")[0];
     sidebar.removeEventListener ('DOMSubtreeModified', fetchDelayed);
     setTimeout(fetchUpdates, 1000);
