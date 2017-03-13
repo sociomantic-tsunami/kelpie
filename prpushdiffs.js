@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.6
+// @version      0.7
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*/*/pull/*
@@ -153,7 +153,7 @@ class Fetcher
                         type, i == response.files.length-1);
             }
         }
-      
+
         // Create a new request object
         var request = new XMLHttpRequest();
 
@@ -167,6 +167,18 @@ class Fetcher
         request.send();
     }
 
+    makeShaLink ( sha, name )
+    {
+        var link = document.createElement("A");
+        link.href = "https://github.com/" +
+            this.owner + "/" +
+            this.repo + "/commit/" +
+            sha;
+        link.innerText = name;
+
+        return link;
+    }
+
     diffUsingJS ( viewType, reset )
     {
         "use strict";
@@ -175,9 +187,12 @@ class Fetcher
 
         var diffoutputdiv = this.element;
 
-        //if (reset)
-            diffoutputdiv.innerHTML = "";
+        diffoutputdiv.innerHTML = "";
 
+        diffoutputdiv.appendChild(this.makeShaLink(this.sha_base, "old-head"));
+        diffoutputdiv.appendChild(document.createTextNode(" ... "));
+        diffoutputdiv.appendChild(this.makeShaLink(this.sha_update, "head"));
+        diffoutputdiv.appendChild(document.createTextNode("   "));
 
         var exit_button = document.createElement("BUTTON");
         exit_button.innerText = "Close";
