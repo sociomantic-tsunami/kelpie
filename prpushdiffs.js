@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.3
+// @version      0.4
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*/*/pull/*
@@ -131,6 +131,7 @@ class Fetcher
         request.onload = receiveFile;
         // Initialize a request
         request.open('get', "https://api.github.com/repos/"+this.owner+"/"+this.repo+"/contents/" + file + "?ref=" + commit);
+        console.log("Auth token: " + this.usertoken);
         request.setRequestHeader("Authorization", "Basic " + btoa(this.usertoken));
         // Send it
         request.send();
@@ -139,7 +140,7 @@ class Fetcher
     fetchCommit ( commit, type )
     {
         function fetchCommitCb ()
-        {
+        {            
             if (this.status == 401)
             {
                 GM_setValue("token", "");
@@ -167,6 +168,7 @@ class Fetcher
         // Initialize a request
         request.open('get', 'https://api.github.com/repos/'+this.owner+'/'+this.repo+'/commits/' + commit);
         request.setRequestHeader("Authorization", "Basic " + btoa(this.usertoken));
+      console.log("Auth token: " + this.usertoken);
         // Send it
         request.send();
 
@@ -252,19 +254,27 @@ function askCredentials ( )
 
     textfield_user.type = "text";
     
-    var user = GM_getValue("username");    
+    var user = GM_getValue("username");
     if (!user)
         user = "Username";
     
     textfield_user.value = user;
     textfield_user.id = "github-user";
 
-    textfield_token.type = "text";
-    textfield_token.value = "Github Token";
-    textfield_token.id = "github-token";
+    var token = GM_getValue("token");
+    if (!token)
+        token = "Github Token";
     
+    textfield_token.type = "text";
+    textfield_token.value = token;
+    textfield_token.id = "github-token";
+  
+    var url = GM_getValue("jenkins");
+    if (!url)
+        url = "Jenkins Base URL";
+  
     textfield_jenkins.type = "text";
-    textfield_jenkins.value = "Jenkins Base URL";
+    textfield_jenkins.value = url;
     textfield_jenkins.id = "jenkins-url";
     
     var note = document.createElement("P");
@@ -338,11 +348,11 @@ function fetchUpdates ( )
     GM_xmlhttpRequest({
         method: "GET",
         url: jenkins+owner+'/'+repo+'/' + prid + "?cachebust=" + Date.now() ,
-        onload: function () {
-            if (this.status == 200)
-                drawButtons(this.responseText);
+        onload: function (response) {
+            if (response.status == 200)
+                drawButtons(response.responseText);
             else
-                console.log("Received status " + this.status);
+                console.log("Received statuse " + JSON.stringify(response));
         }});
 }
 
@@ -468,7 +478,7 @@ function fetchDelayed ( )
 
     var css_style = GM_getResourceText ("CSSDIFF");
     GM_addStyle (css_style);
-
+  
     // Add button to set up github API access
     if (!GM_getValue("username") || !GM_getValue("token") || !GM_getValue("jenkins"))
     {
