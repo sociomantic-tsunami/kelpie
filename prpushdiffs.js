@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.2
+// @version      0.3
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*/*/pull/*
@@ -248,6 +248,7 @@ function askCredentials ( )
 
     var textfield_user = document.createElement("INPUT");
     var textfield_token = document.createElement("INPUT");
+    var textfield_jenkins = document.createElement("INPUT");
 
     textfield_user.type = "text";
     
@@ -262,6 +263,10 @@ function askCredentials ( )
     textfield_token.value = "Github Token";
     textfield_token.id = "github-token";
     
+    textfield_jenkins.type = "text";
+    textfield_jenkins.value = "Jenkins Base URL";
+    textfield_jenkins.id = "jenkins-url";
+    
     var note = document.createElement("P");
     note.href = "https://github.com/settings/tokens";
     note.innerHTML = "The token required here can be created at <a href=\"https://github.com/settings/tokens\">your settings page</a>.<br>Required scope is 'repo'.";
@@ -274,6 +279,8 @@ function askCredentials ( )
 
     box.appendChild(textfield_user);
     box.appendChild(textfield_token);
+    box.appendChild(document.createElement("BR"));
+    box.appendChild(textfield_jenkins);
     box.appendChild(button);
     box.appendChild(note);
 
@@ -285,9 +292,11 @@ function saveCredentials ( )
 {
     var user = document.getElementById("github-user");
     var token = document.getElementById("github-token");
+    var jenkins = document.getElementById("jenkins-url");
 
     GM_setValue("username", user.value);
     GM_setValue("token", token.value);
+    GM_setValue("jenkins", jenkins.value);
 
     var box = document.getElementById("github-credentials-box");
     box.outerHTML = "";
@@ -309,7 +318,6 @@ function makeButton ( text, action, id )
     button.className = "btn";
     button.innerText = text;
     button.onclick = action;
-    
 
     buttondiv.appendChild(button);
     sidebar.appendChild(buttondiv);
@@ -318,17 +326,18 @@ function makeButton ( text, action, id )
 
 // Fetches the sha heads from jenkins
 function fetchUpdates ( )
-{    
-    console.log("Fetching again");
+{
     var urlsplit = document.URL.split("/");
     var owner = urlsplit[3];
     var repo  = urlsplit[4];
     var prid  = urlsplit[6];
-    
+
+    var jenkins = GM_getValue("jenkins");
+
     // Create a new request object
     GM_xmlhttpRequest({
         method: "GET",
-        url: 'https://ci.sociomantic.com/userContent/'+owner+'/'+repo+'/' + prid + "?cachebust=" + Date.now() ,
+        url: jenkins+owner+'/'+repo+'/' + prid + "?cachebust=" + Date.now() ,
         onload: function () {
             if (this.status == 200)
                 drawButtons(this.responseText);
@@ -461,11 +470,11 @@ function fetchDelayed ( )
     GM_addStyle (css_style);
 
     // Add button to set up github API access
-    if (!GM_getValue("username") || !GM_getValue("token"))
+    if (!GM_getValue("username") || !GM_getValue("token") || !GM_getValue("jenkins"))
     {
         makeButton("Setup Credentials", askCredentials, "credentials-button");
 
-        console.log("Requesting user & token");
+        console.log("Requesting user & token & jenkins");
         return;
     }
 
