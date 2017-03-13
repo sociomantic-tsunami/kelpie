@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.1
+// @version      0.2
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*/*/pull/*
@@ -145,7 +145,7 @@ class Fetcher
                 GM_setValue("token", "");
                 alert("Authentication error, please reenter your token!");
                 askCredentials();
-                return;                
+                return;
             }
             var response = JSON.parse(this.responseText);
 
@@ -341,12 +341,12 @@ function fetchUpdates ( )
 function drawButtons ( shas )
 {
     var sidebar = document.getElementsByClassName("discussion-sidebar")[0];
-    
+
     if (sidebar.removeEventListener)
     {
         sidebar.removeEventListener ('DOMSubtreeModified', fetchDelayed);
     }
-    
+
     var sha_list = shas.split("\n");
 
     var base, head, update;
@@ -360,15 +360,27 @@ function drawButtons ( shas )
 
         var func = function()
         {
-            var divdiff = document.createElement("DIV");
-            divdiff.style.backgroundColor = "white";
-            divdiff.style.position = "fixed";
-            divdiff.style.border = "solid black 2px";
-            divdiff.style.zIndex = 999999;
-            divdiff.style.left = "10%";
-            divdiff.style.top = "10%";
-            divdiff.style.padding = "20px";
-            divdiff.id = "diff-div";
+            var divdiff;
+
+            var byId = document.getElementById("diff-div");
+
+            if (byId === null)
+            {
+                divdiff = document.createElement("DIV");
+                divdiff.style.backgroundColor = "white";
+                divdiff.style.position = "fixed";
+                divdiff.style.border = "solid black 2px";
+                divdiff.style.zIndex = 999999;
+                divdiff.style.left = "10%";
+                divdiff.style.top = "10%";
+                divdiff.style.padding = "20px";
+                divdiff.id = "diff-div";
+            }
+            else
+            {
+                divdiff = byId;
+                divdiff.innerHTML = "Loading...";
+            }
 
             var urlsplit = document.URL.split("/");
             var owner = urlsplit[3];
