@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.7
+// @version      0.8
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*/*/pull/*
@@ -325,16 +325,16 @@ function saveCredentials ( )
 // Creates a button in the github sidebar in PRs
 function makeButton ( text, action, id )
 {
-    var sidebar = document.getElementById("partial-discussion-sidebar");
+    var sidebar = document.getElementById("github-incremental-diffs-sidebar-item");
 
     var buttondiv = document.createElement("DIV");
-    buttondiv.className = "discussion-sidebar-item";
     buttondiv.id = id;
 
-    var button = document.createElement("BUTTON");
-    button.className = "btn";
-    button.innerText = text;
+    var button = document.createElement("A");
+
+    button.appendChild(document.createTextNode(text));
     button.onclick = action;
+    button.href = "#";
 
     buttondiv.appendChild(button);
     sidebar.appendChild(buttondiv);
@@ -450,7 +450,7 @@ function drawButtons ( shas )
                                  time.getHours() + ":" +
                                  time.getMinutes();
 
-            makeButton("Update " + formatted_time, makeShowDiffFunc(), "diffbutton-" + update);
+            makeButton("Update at " + formatted_time, makeShowDiffFunc(), "diffbutton-" + update);
         }
 
         update++;
@@ -484,6 +484,20 @@ function fetchDelayed ( )
 
     var css_style = GM_getResourceText ("CSSDIFF");
     GM_addStyle (css_style);
+
+    var sidebar = document.getElementById("partial-discussion-sidebar");
+
+    var buttondiv = document.createElement("DIV");
+    buttondiv.className = "discussion-sidebar-item";
+    buttondiv.id = "github-incremental-diffs-sidebar-item";
+
+    var header = document.createElement("H3");
+    header.appendChild(document.createTextNode("Incremental Diffs"));
+    header.className = "discussion-sidebar-heading";
+
+    buttondiv.appendChild(header);
+
+    sidebar.appendChild(buttondiv);
 
     // Add button to set up github API access
     if (!GM_getValue("username") || !GM_getValue("token") || !GM_getValue("jenkins"))
