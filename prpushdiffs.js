@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.8
+// @version      0.9
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
-// @match        *://github.com/*/*/pull/*
+// @match        *://github.com/*
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_addStyle
@@ -32,36 +32,24 @@ class Fetcher
         this.owner = owner;
         this.repo = repo;
         this.element = element;
+        this.files = [];
 
         this.usertoken = GM_getValue("username") + ":" + GM_getValue("token");
 
-        this.fetchCommit(commit1, "base");
-        this.fetchCommit(commit2, "update");
-
+        this.fetchCommit(this.sha_update, "update");
     }
 
-    allDone ( )
+    checkDone ( )
     {
-        // Fetch any missing file versions
-        if (!this.base_done || !this.update_done)
-            return;
-
-
         for (var i = 0; i<this.files.length; i++)
         {
             var file = this.files[i];
-            if (!file.base)
-            {
-                this.base_done = false;
-                console.log("Missing base of " + file.name + ", fetching...");
-                this.fetchFile(this.sha_base, file.name, "base", true);
-            }
-            if (!file.update)
-            {
-                this.update_done = false;
-                console.log("Missing update of " + file.name + ", fetching...");
-                this.fetchFile(this.sha_update, file.name, "update", true);
-            }
+
+            if (file.base === undefined)
+                return;
+
+            if (file.update === undefined)
+                return;
         }
 
         this.diffUsingJS(0);
@@ -69,61 +57,45 @@ class Fetcher
     }
 
 
-    fetchFile ( commit, file, type, last )
+    fetchFile ( commit, file, type )
     {
         console.log("Fetching file " + file + " from " + commit);
 
         function receiveFile ( )
         {
-            var response = JSON.parse(this.responseText);
-
             var found = false;
 
+            var response = JSON.parse(this.responseText);
+
             for (var i = 0; i < this.outside.files.length; i++)
-                if (this.outside.files[i].name == response.path)
+            {
+                if (this.outside.files[i].name == this.myPath)
                 {
+                    var content;
+
+                    if (this.status == 200 && response.content.length > 0)
+                        content = atob(response.content);
+                    else
+                        content = "";
+
                     if (type == "base")
-                        this.outside.files[i].base = atob(response.content);
+                        this.outside.files[i].base = content;
                     else if (type == "update")
-                        this.outside.files[i].update = atob(response.content);
+                        this.outside.files[i].update = content;
 
                     found = true;
                     break;
                 }
-
-            if (!found)
-            {
-                file = new Object;
-                file.name = response.path;
-
-                if (type == "base")
-                {
-                    file.base = atob(response.content);
-                }
-                else if (type == "update")
-                {
-                    file.update = atob(response.content);
-                }
-
-                this.outside.files.push(file);
             }
 
-            if (last)
-            {
-                if (type == "base")
-                    this.outside.base_done = true;
-                else
-                    this.outside.update_done = true;
-
-                this.outside.allDone();
-            }
+            this.outside.checkDone();
         }
-
 
         var request = new XMLHttpRequest();
 
         request.outside = this;
         request.onload = receiveFile;
+        request.myPath = file;
         // Initialize a request
         request.open('get', "https://api.github.com/repos/"+this.owner+"/"+this.repo+"/contents/" + file + "?ref=" + commit);
 
@@ -135,7 +107,7 @@ class Fetcher
     fetchCommit ( commit, type )
     {
         function fetchCommitCb ()
-        {            
+        {
             if (this.status == 401)
             {
                 GM_setValue("token", "");
@@ -143,15 +115,24 @@ class Fetcher
                 askCredentials();
                 return;
             }
+
             var response = JSON.parse(this.responseText);
 
             console.log(response);
 
-            for (var i = 0; i < response.files.length; i++)
+            if (type=="update") for (var i = 0; i < response.files.length; i++)
             {
-                this.outside.fetchFile(response.sha, response.files[i].filename,
-                        type, i == response.files.length-1);
+                var file = new Object;
+                file.name = response.files[i].filename;
+
+                this.outside.files.push(file);
             }
+
+            for (var i = 0; i < this.outside.files.length; i++)
+                this.outside.fetchFile(response.sha, this.outside.files[i].name, type);
+
+            if (type=="update")
+                this.outside.fetchCommit(this.outside.sha_base, "base");
         }
 
         // Create a new request object
@@ -188,7 +169,7 @@ class Fetcher
         var diffoutputdiv = this.element;
 
         diffoutputdiv.innerHTML = "";
-
+        diffoutputdiv.style.backgroundColor = "white";
         diffoutputdiv.appendChild(this.makeShaLink(this.sha_base, "old-head"));
         diffoutputdiv.appendChild(document.createTextNode(" ... "));
         diffoutputdiv.appendChild(this.makeShaLink(this.sha_update, "head"));
@@ -226,8 +207,6 @@ class Fetcher
                 viewType: viewType
             }));
         }
-
-        document.body.appendChild(this.element);
     }
 }
 
@@ -358,8 +337,6 @@ function fetchUpdates ( )
         onload: function (response) {
             if (response.status == 200)
                 drawButtons(response.responseText);
-            else
-                console.log("Received statuse " + JSON.stringify(response));
         }});
 }
 
@@ -393,19 +370,24 @@ function drawButtons ( shas )
             if (byId === null)
             {
                 divdiff = document.createElement("DIV");
-                divdiff.style.backgroundColor = "white";
+                divdiff.style.backgroundColor = "yellow";
                 divdiff.style.position = "fixed";
                 divdiff.style.border = "solid black 2px";
                 divdiff.style.zIndex = 999999;
                 divdiff.style.left = "10%";
                 divdiff.style.top = "10%";
                 divdiff.style.padding = "20px";
+
                 divdiff.id = "diff-div";
+                divdiff.innerHTML = "Loading...";
+
+                document.body.appendChild(divdiff);
             }
             else
             {
                 divdiff = byId;
                 divdiff.innerHTML = "Loading...";
+                divdiff.style.backgroundColor = "yellow";
             }
 
             var urlsplit = document.URL.split("/");
@@ -414,6 +396,7 @@ function drawButtons ( shas )
 
             console.log("pressed.. " + inner_base + " " + inner_head);
             fetcher.start(owner, repo, inner_base, inner_head, divdiff);
+
         };
         return func;
     }
@@ -478,8 +461,8 @@ function fetchDelayed ( )
     setTimeout(fetchUpdates, 1000);
 }
 
-(function()
- {
+function render ( )
+{
     'use strict';
 
     var css_style = GM_getResourceText ("CSSDIFF");
@@ -509,5 +492,18 @@ function fetchDelayed ( )
     }
 
     fetchUpdates();
+}
 
+
+(function()
+{
+    var parts = document.URL.split("/");
+
+    if (parts[5] == "pull")
+        render();
+
+    window.onbeforeunload = function()
+    {
+        console.log("window changed!");
+    };
 })();
