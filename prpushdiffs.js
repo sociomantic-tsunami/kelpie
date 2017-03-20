@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.9
+// @version      0.10
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*
@@ -290,9 +290,14 @@ function saveCredentials ( )
     var token = document.getElementById("github-token");
     var jenkins = document.getElementById("jenkins-url");
 
-    GM_setValue("username", user.value);
-    GM_setValue("token", token.value);
-    GM_setValue("jenkins", jenkins.value);
+    jenkins = jenkins.value.trim();
+
+    if (jenkins.substr(-1, 1) != "/")
+        jenkins = jenkins + "/";
+
+    GM_setValue("username", user.value.trim());
+    GM_setValue("token", token.value.trim());
+    GM_setValue("jenkins", jenkins);
 
     var box = document.getElementById("github-credentials-box");
     box.outerHTML = "";
@@ -312,12 +317,11 @@ function makeButton ( text, action, id )
     var button = document.createElement("A");
 
     button.appendChild(document.createTextNode(text));
-    button.onclick = action;
+    button.onclick = function () { action(); return false; };
     button.href = "#";
 
     buttondiv.appendChild(button);
     sidebar.appendChild(buttondiv);
-
 }
 
 // Fetches the sha heads from jenkins
@@ -330,13 +334,17 @@ function fetchUpdates ( )
 
     var jenkins = GM_getValue("jenkins");
 
+    var url = jenkins+owner+'/'+repo+'/' + prid + "?cachebust=" + Date.now();
+
     // Create a new request object
     GM_xmlhttpRequest({
         method: "GET",
-        url: jenkins+owner+'/'+repo+'/' + prid + "?cachebust=" + Date.now() ,
+        url: url,
         onload: function (response) {
             if (response.status == 200)
                 drawButtons(response.responseText);
+            else
+                console.log("No pushes found at "+url+": " + response.status);
         }});
 }
 
@@ -465,25 +473,29 @@ function render ( )
 {
     'use strict';
 
+    var need_setup = !GM_getValue("username") || !GM_getValue("token") || !GM_getValue("jenkins");
+
     var css_style = GM_getResourceText ("CSSDIFF");
     GM_addStyle (css_style);
 
     var sidebar = document.getElementById("partial-discussion-sidebar");
 
-    var buttondiv = document.createElement("DIV");
-    buttondiv.className = "discussion-sidebar-item";
-    buttondiv.id = "github-incremental-diffs-sidebar-item";
+    var item = document.createElement("DIV");
+    item.className = "discussion-sidebar-item";
+    item.id = "github-incremental-diffs-sidebar-item";
 
     var header = document.createElement("H3");
     header.appendChild(document.createTextNode("Incremental Diffs"));
+    header.ondblclick = askCredentials;
+
     header.className = "discussion-sidebar-heading";
 
-    buttondiv.appendChild(header);
+    item.appendChild(header);
 
-    sidebar.appendChild(buttondiv);
+    sidebar.appendChild(item);
 
     // Add button to set up github API access
-    if (!GM_getValue("username") || !GM_getValue("token") || !GM_getValue("jenkins"))
+    if (need_setup)
     {
         makeButton("Setup Credentials", askCredentials, "credentials-button");
 
@@ -501,7 +513,7 @@ function render ( )
 
     if (parts[5] == "pull")
         render();
-
+    // This is required for this script to be run upon ajax load.. not sure why
     window.onbeforeunload = function()
     {
         console.log("window changed!");
