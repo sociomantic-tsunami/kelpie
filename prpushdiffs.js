@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.10
+// @version      0.11
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*
@@ -73,8 +73,10 @@ class Fetcher
                 {
                     var content;
 
-                    if (this.status == 200 && response.content.length > 0)
+                    if (this.status == 200 && response.content && response.content.length > 0)
+                    {
                         content = atob(response.content);
+                    }
                     else
                         content = "";
 
@@ -170,6 +172,10 @@ class Fetcher
 
         diffoutputdiv.innerHTML = "";
         diffoutputdiv.style.backgroundColor = "white";
+        diffoutputdiv.style.overflow = "auto";
+        diffoutputdiv.style.maxHeight = "95%";
+        diffoutputdiv.style.maxWidth = "95%";
+        
         diffoutputdiv.appendChild(this.makeShaLink(this.sha_base, "old-head"));
         diffoutputdiv.appendChild(document.createTextNode(" ... "));
         diffoutputdiv.appendChild(this.makeShaLink(this.sha_update, "head"));
@@ -180,6 +186,10 @@ class Fetcher
         exit_button.onclick = function() { diffoutputdiv.outerHTML = ""; };
         diffoutputdiv.appendChild(exit_button);
 
+        var content = document.createElement("DIV");
+        content.style.marginRight = "150px";
+
+        
         for (var i = 0; i < this.files.length; i++)
         {
             if (this.files[i].base == this.files[i].update)
@@ -197,7 +207,7 @@ class Fetcher
             diffoutputdiv.appendChild(header);
             contextSize = contextSize || null;
 
-            diffoutputdiv.appendChild(diffview.buildView({
+            content.appendChild(diffview.buildView({
                 baseTextLines: base,
                 newTextLines: newtxt,
                 opcodes: opcodes,
@@ -207,6 +217,34 @@ class Fetcher
                 viewType: viewType
             }));
         }
+        
+        
+        diffoutputdiv.appendChild(content);
+   
+        if (content.children.length == 0)
+            return;
+        
+        var original = document.getElementById("github-incremental-diffs-sidebar-item");
+     
+        var sidelinks = original.cloneNode(true);
+
+        for (var i=0; i < original.children.length; i++)
+        {
+            sidelinks.children[i].lastChild.onclick = original.children[i].lastChild.onclick;
+        }
+        
+        var computed = window.getComputedStyle(diffoutputdiv);
+        
+        sidelinks.id = "temp-links";
+        sidelinks.style.right = computed.right; //"0px";
+        sidelinks.style.marginRight = "15px";
+        sidelinks.style.top   = computed.top;
+        sidelinks.style.width = "150px";
+        sidelinks.style.position = "fixed";
+        
+        diffoutputdiv.appendChild(sidelinks);
+        
+        
     }
 }
 
@@ -382,8 +420,8 @@ function drawButtons ( shas )
                 divdiff.style.position = "fixed";
                 divdiff.style.border = "solid black 2px";
                 divdiff.style.zIndex = 999999;
-                divdiff.style.left = "10%";
-                divdiff.style.top = "10%";
+                divdiff.style.left = "10px";
+                divdiff.style.top = "10px";
                 divdiff.style.padding = "20px";
 
                 divdiff.id = "diff-div";
