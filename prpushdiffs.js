@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.12
+// @version      0.13
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*
@@ -343,6 +343,72 @@ function saveCredentials ( )
     fetchUpdates();
 }
 
+function makeTimelineEntry ( time, text, action, id )
+{
+    console.log("Creating entry " + text + " " + id);
+    var discussion_bucket = document.getElementById("discussion_bucket");
+    var timeline;
+    var timeline_content;
+
+    for (var i=0; i<discussion_bucket.children.length; i++)
+        if (discussion_bucket.children[i].classname == "discussion-sidebar")
+            continue;
+        else
+            timeline = discussion_bucket.children[i];
+
+    for (i=0; i < timeline.children.length; i++)
+        if (timeline.children[i].className == "discussion-timeline-actions")
+            continue;
+        else
+            timeline_content = timeline.children[0];
+
+    // Walks up the parent chain until the direct parent is timeline_content
+    var findTopMostChild = function ( child )
+    {
+        while (child.parentElement != timeline_content)
+            child = child.parentElement;
+
+        return child;
+    };
+
+    var times = timeline_content.getElementsByTagName("relative-time");
+
+    var insert_before;
+
+    // Find the right place in the timeline to insert
+    for (var o=0; o < times.length; o++)
+    {
+        var date = times[o].getAttribute("datetime");
+
+        if (Date.parse(date) > time)
+        {
+            insert_before = findTopMostChild(times[o]);
+            break;
+        }
+    }
+
+    // Construct item to insert
+    var timeline_item = document.createElement("DIV");
+    timeline_item.className = "discussion-item-header discussion-item";
+
+    // Copied from github src code for push icon
+    timeline_item.innerHTML = '<span class="discussion-item-icon"><svg aria-hidden="true" class="octicon octicon-repo-push" height="16" version="1.1" viewBox="0 0 12 16" width="12"><path fill-rule="evenodd" d="M4 3H3V2h1v1zM3 5h1V4H3v1zm4 0L4 9h2v7h2V9h2L7 5zm4-5H1C.45 0 0 .45 0 1v12c0 .55.45 1 1 1h4v-1H1v-2h4v-1H2V1h9.02L11 10H9v1h2v2H9v1h2c.55 0 1-.45 1-1V1c0-.55-.45-1-1-1z"></path></svg></span>';
+    timeline_item.id = id;
+    timeline_item.appendChild(document.createTextNode(text));
+
+    var link = document.createElement("A");
+
+    link.className = "btn btn-sm btn-outline";
+    //link.appendChild(document.createTextNode(text));
+    link.innerText = "View changes";
+    link.onclick = function () { action(); return false; };
+    link.href = "#";
+
+    timeline_item.appendChild(link);
+
+    timeline_content.insertBefore(timeline_item, insert_before);
+    console.log("Called insert for " + timeline_item + " inserting before " + insert_before);
+}
 
 // Creates a button in the github sidebar in PRs
 function makeButton ( text, action, id )
@@ -471,6 +537,7 @@ function drawButtons ( shas )
         if (!document.getElementById("diffbutton-" + update))
         {
             var formatted_time = update;
+
             var addZero = function ( num )
             {
                 if (num < 10)
@@ -486,7 +553,7 @@ function drawButtons ( shas )
                                  addZero(time.getHours()) + ":" +
                                  addZero(time.getMinutes());
 
-            makeButton("Update at " + formatted_time, makeShowDiffFunc(), "diffbutton-" + update);
+            makeTimelineEntry(time.getTime(), "Update at " + formatted_time, makeShowDiffFunc(), "diffbutton-" + update);
         }
 
         update++;
