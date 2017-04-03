@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.11
+// @version      0.12
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*
@@ -204,7 +204,7 @@ class Fetcher
             var header = document.createElement("H4");
             header.innerHTML = this.files[i].name;
 
-            diffoutputdiv.appendChild(header);
+            content.appendChild(header);
             contextSize = contextSize || null;
 
             content.appendChild(diffview.buildView({
@@ -471,13 +471,20 @@ function drawButtons ( shas )
         if (!document.getElementById("diffbutton-" + update))
         {
             var formatted_time = update;
+            var addZero = function ( num )
+            {
+                if (num < 10)
+                    num = "0" + num;
+
+                return num;
+            };
 
             if (time !== undefined)
                 formatted_time = time.getDate() + "." +
-                                 (time.getMonth()+1) + "." +
+                                 addZero((time.getMonth()+1)) + "." +
                                  time.getFullYear() + " " +
-                                 time.getHours() + ":" +
-                                 time.getMinutes();
+                                 addZero(time.getHours()) + ":" +
+                                 addZero(time.getMinutes());
 
             makeButton("Update at " + formatted_time, makeShowDiffFunc(), "diffbutton-" + update);
         }
