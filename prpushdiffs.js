@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.13
+// @version      0.14
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*
@@ -343,10 +343,8 @@ function saveCredentials ( )
     fetchUpdates();
 }
 
-function makeTimelineEntry ( time, text, action, id )
+function getTimeline ( )
 {
-    console.log("Creating entry " + text + " " + id);
-    var discussion_bucket = document.getElementById("discussion_bucket");
     var timeline;
     var timeline_content;
 
@@ -362,13 +360,99 @@ function makeTimelineEntry ( time, text, action, id )
         else
             timeline_content = timeline.children[0];
 
+    return timeline_content;
+}
+
+
+function getTimelineItems ( times_only, type )
+{
+    var timeline_content = getTimeline();
+
     // Walks up the parent chain until the direct parent is timeline_content
     var findTopMostChild = function ( child )
     {
-        while (child.parentElement != timeline_content)
-            child = child.parentElement;
+        var my_child = child;
 
-        return child;
+        while (my_child.parentElement != timeline_content)
+            my_child = my_child.parentElement;
+
+        return my_child;
+    };
+
+    var times = timeline_content.getElementsByTagName("relative-time");
+
+    var return_array = [];
+    var last;
+    var last_was_review = false;
+
+    for (var o=0; o < times.length; o++)
+    {
+        var topmost = findTopMostChild(times[o]);
+
+        if (topmost == last)
+            continue;
+
+        if (type == "review")
+        {
+            // Only review tags have this class
+            var is_review = /discussion-item-review/g.test(topmost.className);
+
+
+            if (!is_review)
+            {
+                last_was_review = false;
+                continue;
+            }
+        }
+        else if (type == "comment")
+        {
+            // Only comments have this class
+            if (!/timeline-comment-wrapper/g.test(topmost.className))
+                continue;
+        }
+
+        if (times_only)
+        {
+            var date = times[o].getAttribute("datetime");
+            var parsed_date = Date.parse(date);
+
+            // Collaps reviews that directly follow each other into one
+            if (last_was_review)
+                return_array[return_array.length-1] = parsed_date;
+            else
+                return_array.push(parsed_date);
+        }
+        else
+        {
+            // Collaps reviews that directly follow each other into one
+            if (last_was_review)
+                return_array[return_array.length-1] = topmost;
+            else
+                return_array.push(topmost);
+        }
+
+        last = topmost;
+        last_was_review = true;
+    }
+
+    return return_array;
+}
+
+function makeTimelineEntry ( time, text, action, id )
+{
+    console.log("Creating entry " + text + " " + id);
+
+    var timeline_content = getTimeline();
+
+    // Walks up the parent chain until the direct parent is timeline_content
+    var findTopMostChild = function ( child )
+    {
+        var my_child = child;
+
+        while (my_child.parentElement != timeline_content)
+            my_child = my_child.parentElement;
+
+        return my_child;
     };
 
     var times = timeline_content.getElementsByTagName("relative-time");
@@ -379,6 +463,10 @@ function makeTimelineEntry ( time, text, action, id )
     for (var o=0; o < times.length; o++)
     {
         var date = times[o].getAttribute("datetime");
+
+        // Ignore review discussion timestamps
+        if (/discussion/.test(times[o].parentElement.getAttribute("href")))
+            continue;
 
         if (Date.parse(date) > time)
         {
@@ -407,7 +495,6 @@ function makeTimelineEntry ( time, text, action, id )
     timeline_item.appendChild(link);
 
     timeline_content.insertBefore(timeline_item, insert_before);
-    console.log("Called insert for " + timeline_item + " inserting before " + insert_before);
 }
 
 // Creates a button in the github sidebar in PRs
@@ -434,11 +521,15 @@ function fetchUpdates ( )
     var urlsplit = document.URL.split("/");
     var owner = urlsplit[3];
     var repo  = urlsplit[4];
-    var prid  = urlsplit[6];
+    var prid_and_anker = urlsplit[6].split("#");
+
+    var prid = prid_and_anker[0];
 
     var jenkins = GM_getValue("jenkins");
 
-    var url = jenkins+owner+'/'+repo+'/' + prid + "?cachebust=" + Date.now();
+    var url = jenkins+owner+'/'+repo+'/' + prid + "?cachebust=" + new Date().getTime();
+
+    console.log("Fetching updates from " + url);
 
     // Create a new request object
     GM_xmlhttpRequest({
@@ -468,11 +559,8 @@ function drawButtons ( shas )
 
     update = 1;
 
-    function makeShowDiffFunc ( )
+    function makeShowDiffFunc ( inner_base, inner_head )
     {
-        var inner_base = base;
-        var inner_head = head;
-
         var func = function()
         {
             var divdiff;
@@ -513,9 +601,12 @@ function drawButtons ( shas )
         return func;
     }
 
+    var pairs = [];
+
+    // Build pairs of commits to create diff from
     for (var i = 0; i < sha_list.length; i++)
     {
-        if (sha_list[i].length == 0)
+        if (sha_list[i].length === 0)
             continue;
 
         var sha_data = sha_list[i].split(";");
@@ -533,6 +624,99 @@ function drawButtons ( shas )
 
         head = sha;
 
+        var pair = {};
+        pair.base = base;
+        pair.head = head;
+        pair.time = time;
+
+        pairs.push(pair);
+
+        base = head;
+    }
+
+    console.log("Pairs: " + pairs.length + " last: " + head);
+    
+    // Next, merge the pairs between reviews/comments
+    var timeline_items = getTimelineItems(true, "review");
+
+    console.log("Found " + timeline_items.length + " items");
+
+    var base_pair = null;
+
+    var merged_pairs = [];
+    var merged_pair = {};
+
+    var timeline_it = 0;
+    
+    // Only try to merge pairs if more than one exists
+    if (pairs.length > 1)
+    {
+        for (i=0; i < pairs.length; i++)
+        {
+                // Find the first review that is right before newer than our current 
+                while (pairs[i].time.getTime() > timeline_items[timeline_it] &&
+                       timeline_it+1 < timeline_items.length &&
+                       pairs[i].time.getTime() > timeline_items[timeline_it+1])
+                    timeline_it++;
+            
+                console.log("Comparing " + pairs[i].time + " > " + new Date(timeline_items[timeline_it]) + " " + i + " > " + timeline_it);
+            
+                if (pairs[i].time.getTime() > timeline_items[timeline_it])
+                {
+                    if (base_pair === null)
+                    {
+                        console.log("Set base at " + i);
+                        base_pair = pairs[i];
+                        timeline_it++;
+                        continue;
+                    }
+
+                    console.log("Merging a pair");
+
+                    // And use the pair one before that as head
+                    var head_pair = pairs[i-1];
+
+                    merged_pair = {};
+                    merged_pair.base = base_pair.base;
+                    merged_pair.head = head_pair.head;
+                    merged_pair.time = head_pair.time;
+
+                    merged_pairs.push(merged_pair);
+
+                    base_pair = pairs[i];
+
+                    timeline_it++;
+
+                    if (timeline_it >= timeline_items.length)
+                        break;
+
+                    continue;
+                }
+        }
+
+        // Merge any remaining pairs
+        if (merged_pairs.length === 0 ||
+            merged_pairs[merged_pairs.length-1].head != pairs[pairs.length-1].head)
+        {
+            merged_pair = {};
+            merged_pair.base = base_pair.base;
+            merged_pair.head = pairs[pairs.length-1].head;
+            merged_pair.time = pairs[pairs.length-1].time;
+
+            merged_pairs.push(merged_pair);
+        }
+    }
+    else
+    {
+        merged_pairs = pairs;
+    }
+
+    console.log("Merged pairs: " + merged_pairs.length);
+    
+    for (i=0; i < merged_pairs.length; i++)
+    {
+        var it = merged_pairs[i];
+
         // Don't remake a button that already exists
         if (!document.getElementById("diffbutton-" + update))
         {
@@ -546,20 +730,17 @@ function drawButtons ( shas )
                 return num;
             };
 
-            if (time !== undefined)
-                formatted_time = time.getDate() + "." +
-                                 addZero((time.getMonth()+1)) + "." +
-                                 time.getFullYear() + " " +
-                                 addZero(time.getHours()) + ":" +
-                                 addZero(time.getMinutes());
+            if (it.time !== undefined)
+                formatted_time = it.time.getDate() + "." +
+                                 addZero((it.time.getMonth()+1)) + "." +
+                                 it.time.getFullYear() + " " +
+                                 addZero(it.time.getHours()) + ":" +
+                                 addZero(it.time.getMinutes());
 
-            makeTimelineEntry(time.getTime(), "Update at " + formatted_time, makeShowDiffFunc(), "diffbutton-" + update);
+            makeTimelineEntry(it.time.getTime(), "Author pushed code changes at " + formatted_time, makeShowDiffFunc(it.base, it.head), "diffbutton-" + update);
         }
 
         update++;
-        base = undefined;
-        head = undefined;
-        i--;
     }
 
     if (sidebar.addEventListener)
@@ -597,7 +778,7 @@ function render ( )
     item.id = "github-incremental-diffs-sidebar-item";
 
     var header = document.createElement("H3");
-    header.appendChild(document.createTextNode("Incremental Diffs"));
+    header.appendChild(document.createTextNode("Incremental Diffs Active"));
     header.ondblclick = askCredentials;
 
     header.className = "discussion-sidebar-heading";
