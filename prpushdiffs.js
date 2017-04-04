@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.14
+// @version      0.15
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*
@@ -166,30 +166,12 @@ class Fetcher
     {
         "use strict";
 
-        var byId = function (id) { return document.getElementById(id); };
+        var contents = this.element.getElementsByClassName("file");
+        var content = contents[0];
+        content.innerHTML = "";
+        content.style.backgroundColor = "white";
+        content.style.textAlign = "center";
 
-        var diffoutputdiv = this.element;
-
-        diffoutputdiv.innerHTML = "";
-        diffoutputdiv.style.backgroundColor = "white";
-        diffoutputdiv.style.overflow = "auto";
-        diffoutputdiv.style.maxHeight = "95%";
-        diffoutputdiv.style.maxWidth = "95%";
-        
-        diffoutputdiv.appendChild(this.makeShaLink(this.sha_base, "old-head"));
-        diffoutputdiv.appendChild(document.createTextNode(" ... "));
-        diffoutputdiv.appendChild(this.makeShaLink(this.sha_update, "head"));
-        diffoutputdiv.appendChild(document.createTextNode("   "));
-
-        var exit_button = document.createElement("BUTTON");
-        exit_button.innerText = "Close";
-        exit_button.onclick = function() { diffoutputdiv.outerHTML = ""; };
-        diffoutputdiv.appendChild(exit_button);
-
-        var content = document.createElement("DIV");
-        content.style.marginRight = "150px";
-
-        
         for (var i = 0; i < this.files.length; i++)
         {
             if (this.files[i].base == this.files[i].update)
@@ -201,50 +183,33 @@ class Fetcher
                 opcodes = sm.get_opcodes(),
                 contextSize = 5; //byId("contextSize").value;
 
-            var header = document.createElement("H4");
-            header.innerHTML = this.files[i].name;
+            var filename = document.createElement("DIV");
+            filename.className = "file-header";
+            filename.innerText = this.files[i].name;
 
-            content.appendChild(header);
+            content.appendChild(filename);
             contextSize = contextSize || null;
 
-            content.appendChild(diffview.buildView({
+            var diff = diffview.buildView({
                 baseTextLines: base,
                 newTextLines: newtxt,
                 opcodes: opcodes,
-                baseTextName: "Base",
+                baseTextName: "Old",
                 newTextName: "New",
                 contextSize: contextSize,
                 viewType: viewType
-            }));
-        }
-        
-        
-        diffoutputdiv.appendChild(content);
-   
-        if (content.children.length == 0)
-            return;
-        
-        var original = document.getElementById("github-incremental-diffs-sidebar-item");
-     
-        var sidelinks = original.cloneNode(true);
+            });
 
-        for (var i=0; i < original.children.length; i++)
-        {
-            sidelinks.children[i].lastChild.onclick = original.children[i].lastChild.onclick;
+            diff.className = diff.className + " blob-wrapper";
+            diff.style.margin = "auto";
+            diff.style.textAlign = "left";
+            content.appendChild(diff);
         }
-        
-        var computed = window.getComputedStyle(diffoutputdiv);
-        
-        sidelinks.id = "temp-links";
-        sidelinks.style.right = computed.right; //"0px";
-        sidelinks.style.marginRight = "15px";
-        sidelinks.style.top   = computed.top;
-        sidelinks.style.width = "150px";
-        sidelinks.style.position = "fixed";
-        
-        diffoutputdiv.appendChild(sidelinks);
-        
-        
+
+        var pos = content.getBoundingClientRect();
+
+        content.style.left = "" + (-pos.left + 15) + "px";
+        content.style.width = "" + (document.documentElement.clientWidth - 30) + "px";
     }
 }
 
@@ -489,7 +454,7 @@ function makeTimelineEntry ( time, text, action, id )
     link.className = "btn btn-sm btn-outline";
     //link.appendChild(document.createTextNode(text));
     link.innerText = "View changes";
-    link.onclick = function () { action(); return false; };
+    link.onclick = function () { action(this); return false; };
     link.href = "#";
 
     timeline_item.appendChild(link);
@@ -561,42 +526,32 @@ function drawButtons ( shas )
 
     function makeShowDiffFunc ( inner_base, inner_head )
     {
-        var func = function()
+        var func = function ( item )
         {
-            var divdiff;
-
-            var byId = document.getElementById("diff-div");
-
-            if (byId === null)
+            if (item.innerText == "Hide changes")
             {
-                divdiff = document.createElement("DIV");
-                divdiff.style.backgroundColor = "yellow";
-                divdiff.style.position = "fixed";
-                divdiff.style.border = "solid black 2px";
-                divdiff.style.zIndex = 999999;
-                divdiff.style.left = "10px";
-                divdiff.style.top = "10px";
-                divdiff.style.padding = "20px";
+                var elem = item.parentElement.getElementsByClassName("file")[0];
+                elem.outerHTML = "";
 
-                divdiff.id = "diff-div";
-                divdiff.innerHTML = "Loading...";
+                item.innerText = "View changes";
+                return;
+            }
 
-                document.body.appendChild(divdiff);
-            }
-            else
-            {
-                divdiff = byId;
-                divdiff.innerHTML = "Loading...";
-                divdiff.style.backgroundColor = "yellow";
-            }
+            var cont = document.createElement("DIV");
+            cont.className = "file";
+            cont.innerHTML = "Loading...";
+            cont.style.backgroundColor = "yellow";
+
+            item.parentElement.appendChild(cont);
 
             var urlsplit = document.URL.split("/");
             var owner = urlsplit[3];
             var repo  = urlsplit[4];
 
+            item.innerText = "Hide changes";
+            
             console.log("pressed.. " + inner_base + " " + inner_head);
-            fetcher.start(owner, repo, inner_base, inner_head, divdiff);
-
+            fetcher.start(owner, repo, inner_base, inner_head, item.parentElement);
         };
         return func;
     }
