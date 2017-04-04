@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.15
+// @version      0.16
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*
@@ -210,6 +210,12 @@ class Fetcher
 
         content.style.left = "" + (-pos.left + 15) + "px";
         content.style.width = "" + (document.documentElement.clientWidth - 30) + "px";
+
+        var close_link = document.createElement("A");
+        close_link.href = "#";
+        close_link.onclick = function () { this.parentElement.parentElement.getElementsByClassName("btn")[0].onclick(); return false; };
+        close_link.innerText = "Close";
+        content.appendChild(close_link);
     }
 }
 
