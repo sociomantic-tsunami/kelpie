@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.18
+// @version      0.19
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*
@@ -305,6 +305,9 @@ class FileDiffer
             if (el.head && el.head.url && !("content" in el.head))
                 this.fetchFile(el.head.url);
         }
+
+        if (this.changed.length === 0)
+            this.checkReceivedFiles();
     }
 
     fetchFile ( url )
