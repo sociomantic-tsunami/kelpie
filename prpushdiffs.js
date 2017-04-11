@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.19
-// @description  Provides you incremental diffs with the help of jenkins
+// @version      0.20
+// @description  Provides you incremental diffs with the help of an extra server
 // @author       Mathias L. Baumann
 // @match        *://github.com/*
 // @grant       GM_getValue
@@ -827,7 +827,7 @@ function makeButton ( text, action, id )
 }
 
 // Fetches the sha heads from jenkins
-function fetchUpdates ( )
+function fetchUpdates ( base_url )
 {
     var urlsplit = document.URL.split("/");
     var owner = urlsplit[3];
@@ -836,9 +836,7 @@ function fetchUpdates ( )
 
     var prid = prid_and_anker[0];
 
-    var jenkins = GM_getValue("jenkins");
-
-    var url = jenkins+owner+'/'+repo+'/' + prid + "?cachebust=" + new Date().getTime();
+    var url = base_url+owner+'/'+repo+'/' + prid + "?cachebust=" + new Date().getTime();
 
     console.log("Fetching updates from " + url);
 
@@ -1106,7 +1104,54 @@ function render ( )
         return;
     }
 
-    fetchUpdates();
+    fetchBaseUrl();
+}
+
+function fetchBaseUrl ( )
+{
+    var baseUrlCb = function ( )
+    {
+        if (this.status == 404)
+        {
+            console.log("No project specific base URL, using global one: " + GM_getValue("jenkins"));
+            fetchUpdates(GM_getValue("jenkins"));
+            return;
+        }
+
+        var response = JSON.parse(this.responseText);
+
+        var blobCb = function ( )
+        {
+            var resp = JSON.parse(this.responseText);
+            var base_url = atob(resp.content);
+
+            console.log("Found project specific base url " + base_url);
+            fetchUpdates(base_url);
+        };
+
+        var request2 = new XMLHttpRequest();
+        request2.onload = blobCb;
+        request2.open('get', response.object.url);
+        var usertoken = GM_getValue("username") + ":" + GM_getValue("token");
+        request2.setRequestHeader("Authorization", "Basic " + btoa(usertoken));
+        request2.send();
+    };
+
+    var request = new XMLHttpRequest();
+
+    request.onload = baseUrlCb;
+
+    var urlsplit = document.URL.split("/");
+    var owner = urlsplit[3];
+    var repo  = urlsplit[4];
+
+    // Initialize a request
+    request.open('get', "https://api.github.com/repos/" + owner + "/" + repo + "/git/refs/meta/incremental-diff-url");
+
+    var usertoken = GM_getValue("username") + ":" + GM_getValue("token");
+    request.setRequestHeader("Authorization", "Basic " + btoa(usertoken));
+    // Send it
+    request.send();
 }
 
 
