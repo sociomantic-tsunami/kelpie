@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
-// @version      0.16
+// @version      0.18
 // @description  Provides you incremental diffs with the help of jenkins
 // @author       Mathias L. Baumann
 // @match        *://github.com/*
@@ -15,154 +15,484 @@
 // @resource    CSSDIFF https://raw.githubusercontent.com/cemerick/jsdifflib/master/diffview.css
 // ==/UserScript==
 
+class FileTree
+{
+    /* Params:
+          sha = sha of the file tree
+          url = api url of the file tree
+    */
+    constructor ( sha, url, root_path )
+    {
+        this.root_path = root_path;
+        this.sha = sha;
+        this.url = url;
+        this.list = [];
+    }
+
+    // Fetches the tree from using the API and calls callback with the result
+    fetch ( cbthis, callback )
+    {
+        if (this.list && this.list.length > 0)
+        {
+            callback(this);
+            return;
+        }
+
+        var request = new XMLHttpRequest();
+
+        var receiveTree = function ( )
+        {
+            var response = JSON.parse(this.responseText);
+
+            for (var i=0; i < response.tree.length; i++)
+            {
+                var obj = { "path" : this.outside.root_path + response.tree[i].path,
+                            "sha"  : response.tree[i].sha,
+                            "url"  : response.tree[i].url,
+                            "type" : response.tree[i].type };
+
+                // Don't get the blob for tree's, get it as another tree
+                if (response.tree[i].type == "tree")
+                    obj.url = obj.url.replace(/blobs/, "trees");
+
+                this.outside.list.push(obj);
+                //console.log("entry info " + obj.path + ", " + obj.sha);
+            }
+
+            this.userCb.call(this.cbthis, this.outside);
+        };
+
+        request.outside = this;
+        request.onload = receiveTree;
+        request.userCb = callback;
+        request.cbthis = cbthis;
+
+        // Initialize a request
+        request.open('get', this.url);
+
+        var usertoken = GM_getValue("username") + ":" + GM_getValue("token");
+        request.setRequestHeader("Authorization", "Basic " + btoa(usertoken));
+        // Send it
+        request.send();
+    }
+}
+
+class FileDiffer
+{
+    constructor ( base, head, original )
+    {
+        // List of files that have changed
+        this.changed = [];
+
+        this.base = base;
+        this.head = head;
+        this.original = original;
+    }
+
+    fetch ( cbthis, callback )
+    {
+        this.cbthis = cbthis;
+        this.callback = callback;
+
+        if (this.base === null)
+            this.base = { "list" : [] };
+        else
+        {
+            var tmp_base = this.base;
+            this.base = null;
+            tmp_base.fetch(this, this.assignBase);
+        }
+
+        if (this.head === null)
+            this.head = { "list" : [] };
+        else
+        {
+            var tmp_head = this.head;
+            this.head = null;
+            tmp_head.fetch(this, this.assignHead);
+        }
+
+        if (this.original === null)
+            this.original = { "list" : [] };
+        else
+        {
+            var tmp_orig = this.original;
+            this.original = null;
+            tmp_orig.fetch(this, this.assignOriginal);
+        }
+    }
+
+    assignBase ( base ) { this.base = base; this.checkComplete(); }
+    assignHead ( head ) { this.head = head; this.checkComplete(); }
+    assignOriginal ( original ) { this.original = original; this.checkComplete(); }
+
+    checkComplete ( )
+    {
+        if (!this.base || !this.head || !this.original)
+            return;
+
+        console.log("Received all trees, extracting required files");
+
+        var diff = null;
+        var i = 0;
+        var head_el = null;
+
+        var matchPath = function (el) { return el.path==head_el.path; };
+
+        // Find all paths differing from base
+        for (i=0; i < this.head.list.length; i++)
+        {
+            head_el = this.head.list[i];
+
+            var orig_path = this.original.list.find(matchPath);
+
+            // If this path exists in original with the same sha, it was added through a rebase
+            if (orig_path !== undefined && orig_path.sha == head_el.sha)
+                continue; // so ignore it
+
+            var base_path = this.base.list.find(matchPath);
+
+            if (orig_path === undefined)
+                orig_path = null;
+
+            // base doesn't have that file?
+            if (base_path === undefined)
+            {   // completely new file
+                diff = { "base" : null, "head" : head_el,
+                         "orig" : null };
+                console.log("File differs (no base): " + head_el.path);
+                this.changed.push(diff);
+                continue;
+            }
+
+            // file exists in base and differs
+            if (base_path.sha != head_el.sha)
+            {   // changes have been made
+                diff = { "base" : base_path, "head" : head_el,
+                         "orig" : orig_path };
+
+                console.log("File differs: " + head_el.path);
+                this.changed.push(diff);
+                continue;
+            }
+        }
+
+        // Find any files not existing in head, but existing in base
+        for (i=0; i < this.base.list.length; i++)
+        {
+            var base_el = this.base.list[i];
+
+            head_el = this.head.list.find(matchPath);
+
+            if (head_el !== undefined)
+                continue;
+
+            diff = { "base" : base_el, "head" : null, "orig" : null };
+            console.log("File differs (no head): " + base_el.path);
+            this.changed.push(diff);
+        }
+
+        this.recurseTree();
+    }
+
+    // recurses into tree objects in our "changed" paths list and looks for diffs
+    recurseTree ( )
+    {
+        var i = 0;
+        var el = {};
+        var base_tree = {};
+        var head_tree = {};
+        var orig_tree = {};
+        var did_recurse = false;
+        var path = "";
+
+        console.log("Recursing...");
+
+        // Prepare to recurse
+        for (i=0; i < this.changed.length; i++)
+        {
+            el = this.changed[i];
+
+            // No need to recurse if one is null
+            if (el.head === null || el.base === null)
+                continue;
+
+            // we can only recurse into trees
+            if (el.head.type != "tree" && el.base.type != "tree")
+                continue;
+
+            if (el.base.type == "tree")
+                base_tree = new FileTree(el.base.sha, el.base.url, el.base.path + "/");
+            else
+                base_tree = null;
+
+            if (el.head.type == "tree")
+                head_tree = new FileTree(el.head.sha, el.head.url, el.head.path + "/");
+            else
+                head_tree = null;
+
+            if (el.orig !== null && el.orig.type == "tree")
+                orig_tree = new FileTree(el.orig.sha, el.orig.url, el.orig.path + "/");
+            else
+                orig_tree = null;
+
+            console.log("Recurse task " + el.head.path);
+
+            el.pending = new FileDiffer(base_tree, head_tree, orig_tree);
+        }
+
+        // Actually do the recursion
+        for (i=0; i < this.changed.length; i++)
+        {
+            el = this.changed[i];
+
+            if ("pending" in el)
+            {
+                console.log("Starting task.. " + el.base.path);
+                el.pending.fetch(this, this.recurseCallback);
+                did_recurse = true;
+            }
+        }
+
+        if (did_recurse === false)
+            this.fetchAllFiles();
+    }
+
+    // called once for every recursion
+    // * merges the recursed tree with ours
+    // * if no more callbacks pending, calls user cb
+    recurseCallback ( file_differ )
+    {
+        var still_waiting = false;
+
+        for (var i=0; i < this.changed.length; i++)
+        {
+            var el = this.changed[i];
+
+            if ("pending" in el && el.pending == file_differ)
+            {
+                console.log("recurseCb for " + el.base.path + " updated");
+                this.changed = this.changed.concat(file_differ.changed);
+                el.pending = null;
+                continue;
+            }
+
+            if ("pending" in el && el.pending !== null)
+            {
+                console.log("Still waiting for " + el.base.path);
+                still_waiting = true;
+            }
+        }
+
+        if (still_waiting)
+        {
+            return;
+        }
+
+        this.fetchAllFiles();
+    }
+
+    fetchAllFiles ( )
+    {
+        console.log("Fetching files...");
+        for (var i=0; i < this.changed.length; i++)
+        {
+            var el = this.changed[i];
+
+            if (el.base && el.base.url && !("content" in el.base))
+                this.fetchFile(el.base.url);
+
+            if (el.head && el.head.url && !("content" in el.head))
+                this.fetchFile(el.head.url);
+        }
+    }
+
+    fetchFile ( url )
+    {
+        console.log("Fetching " + url);
+        var request = new XMLHttpRequest();
+
+        var receiveBlob = function ( )
+        {
+            var response = JSON.parse(this.responseText);
+
+            function findMatch (elem)
+            {
+                if (elem.base && elem.base.sha == response.sha)
+                    return true;
+                else if (elem.head && elem.head.sha == response.sha)
+                    return true;
+
+                return false;
+            }
+
+            var el = this.outside.changed.find(findMatch);
+
+            if (el === undefined)
+            {
+                console.log("received unexpected sha " + response.sha);
+                return;
+            }
+
+            console.log("Received content for " + el.head.path);
+
+            var content = "content" in response && response.content.length > 0 ? atob(response.content) : "";
+
+            if (el.base.sha == response.sha)
+                el.base.content = content;
+            else if (el.head.sha == response.sha)
+                el.head.content = content;
+            else
+                console.log("Unmatched sha?!");
+
+            this.outside.checkReceivedFiles();
+        };
+
+        request.outside = this;
+        request.onload = receiveBlob;
+
+        // Initialize a request
+        request.open('get', url);
+
+        var usertoken = GM_getValue("username") + ":" + GM_getValue("token");
+        request.setRequestHeader("Authorization", "Basic " + btoa(usertoken));
+        // Send it
+        request.send();
+    }
+
+    checkReceivedFiles ( )
+    {
+        var all_content_received = true;
+
+        for (var i=0; i < this.changed.length; i++)
+        {
+            var el = this.changed[i];
+
+            if (el.base && !("content" in el.base) ||
+                el.head && !("content" in el.head))
+            {
+                all_content_received = false;
+                break;
+            }
+        }
+
+        if (all_content_received)
+        {
+            console.log("Received all content, calling cb");
+            this.callback.call(this.cbthis, this);
+        }
+    }
+}
+
 
 class Fetcher
 {
     constructor ( )
     {
         this.files = [];
-        this.base_done = false;
-        this.update_done = false;
     }
 
-    start ( owner, repo, commit1, commit2, element )
+    start ( owner, repo, pr, commit1, commit2, element )
     {
         this.sha_base = commit1;
-        this.sha_update = commit2;
+        this.sha_head = commit2;
         this.owner = owner;
         this.repo = repo;
         this.element = element;
-        this.files = [];
+        this.base_tree = null;
+        this.head_tree = null;
+        this.orig_tree = null;
 
         this.usertoken = GM_getValue("username") + ":" + GM_getValue("token");
 
-        this.fetchCommit(this.sha_update, "update");
+        //this.fetchCommit(this.sha_update, "update");
+        this.fetchPrBase(pr);
     }
 
-    checkDone ( )
+    // Fetches the base branch for the PR and extracts the latest commits sha
+    fetchPrBase ( pr )
     {
-        for (var i = 0; i<this.files.length; i++)
+        console.log("Fetching PR base");
+        var receivePr = function ( )
         {
-            var file = this.files[i];
-
-            if (file.base === undefined)
-                return;
-
-            if (file.update === undefined)
-                return;
-        }
-
-        this.diffUsingJS(0);
-        console.log("all done, creating diff");
-    }
-
-
-    fetchFile ( commit, file, type )
-    {
-        console.log("Fetching file " + file + " from " + commit);
-
-        function receiveFile ( )
-        {
-            var found = false;
-
             var response = JSON.parse(this.responseText);
 
-            for (var i = 0; i < this.outside.files.length; i++)
-            {
-                if (this.outside.files[i].name == this.myPath)
-                {
-                    var content;
-
-                    if (this.status == 200 && response.content && response.content.length > 0)
-                    {
-                        content = atob(response.content);
-                    }
-                    else
-                        content = "";
-
-                    if (type == "base")
-                        this.outside.files[i].base = content;
-                    else if (type == "update")
-                        this.outside.files[i].update = content;
-
-                    found = true;
-                    break;
-                }
-            }
-
-            this.outside.checkDone();
-        }
+            this.outside.fetchTreeShas(this.outside.sha_base, this.outside.sha_head, response.base.sha);
+        };
 
         var request = new XMLHttpRequest();
 
         request.outside = this;
-        request.onload = receiveFile;
-        request.myPath = file;
+        request.onload = receivePr;
         // Initialize a request
-        request.open('get', "https://api.github.com/repos/"+this.owner+"/"+this.repo+"/contents/" + file + "?ref=" + commit);
+        request.open('get', "https://api.github.com/repos/"+this.owner+"/"+this.repo+"/pulls/" + pr);
 
         request.setRequestHeader("Authorization", "Basic " + btoa(this.usertoken));
         // Send it
         request.send();
     }
 
-    fetchCommit ( commit, type )
+    // Extracts the tree shas from base/head/orig commit
+    fetchTreeShas ( base, head, orig )
     {
-        function fetchCommitCb ()
+        console.log("Fetching trees");
+        this.fetchTreeFromCommit(base, "base_tree", this.checkTreesDone);
+        this.fetchTreeFromCommit(head, "head_tree", this.checkTreesDone);
+        this.fetchTreeFromCommit(orig, "orig_tree", this.checkTreesDone);
+    }
+
+    checkTreesDone ( )
+    {
+        console.log("checkTreesDone()");
+
+        if (!this.base_tree || !this.head_tree || !this.orig_tree)
         {
-            if (this.status == 401)
-            {
-                GM_setValue("token", "");
-                alert("Authentication error, please reenter your token!");
-                askCredentials();
-                return;
-            }
-
-            var response = JSON.parse(this.responseText);
-
-            console.log(response);
-
-            if (type=="update") for (var i = 0; i < response.files.length; i++)
-            {
-                var file = new Object;
-                file.name = response.files[i].filename;
-
-                this.outside.files.push(file);
-            }
-
-            for (var i = 0; i < this.outside.files.length; i++)
-                this.outside.fetchFile(response.sha, this.outside.files[i].name, type);
-
-            if (type=="update")
-                this.outside.fetchCommit(this.outside.sha_base, "base");
+            console.log("Not all done: " + this.base_tree + " " + this.head_tree + " " + this.orig_tree);
+            return;
         }
 
-        // Create a new request object
+        console.log("Received all trees-shas, fetching content..");
+        var differ = new FileDiffer(this.base_tree, this.head_tree, this.orig_tree);
+
+        differ.fetch(this, this.render);
+    }
+
+    printMe ( )
+    {
+        for (var key in this)
+            console.log("key: " + key);
+    }
+
+    fetchTreeFromCommit ( commit, name, usercb )
+    {
+        console.log("Fetching " + name + " " + commit);
+        var receiveCommit = function ( )
+        {
+            var response = JSON.parse(this.responseText);
+
+            console.log("Received " + this.commit_name);
+            this.outside[this.commit_name] = new FileTree(response.tree.sha, response.tree.url, "");
+
+            this.usercb.call(this.outside);
+        };
+
         var request = new XMLHttpRequest();
 
         request.outside = this;
-        request.onload = fetchCommitCb;
-        // Initialize a request
-        request.open('get', 'https://api.github.com/repos/'+this.owner+'/'+this.repo+'/commits/' + commit);
-        request.setRequestHeader("Authorization", "Basic " + btoa(this.usertoken));
+        request.onload = receiveCommit;
+        request.commit_name = name;
+        request.usercb = usercb;
 
+        // Initialize a request
+        request.open('get', "https://api.github.com/repos/"+this.owner+"/"+this.repo+"/git/commits/" + commit);
+
+        request.setRequestHeader("Authorization", "Basic " + btoa(this.usertoken));
         // Send it
         request.send();
     }
 
-    makeShaLink ( sha, name )
-    {
-        var link = document.createElement("A");
-        link.href = "https://github.com/" +
-            this.owner + "/" +
-            this.repo + "/commit/" +
-            sha;
-        link.innerText = name;
-
-        return link;
-    }
-
-    diffUsingJS ( viewType, reset )
+    // Generate the diff, append the elements to this.element
+    render ( differ )
     {
         "use strict";
 
@@ -172,20 +502,28 @@ class Fetcher
         content.style.backgroundColor = "white";
         content.style.textAlign = "center";
 
-        for (var i = 0; i < this.files.length; i++)
+        for (var i = 0; i < differ.changed.length; i++)
         {
-            if (this.files[i].base == this.files[i].update)
+            var el = differ.changed[i];
+
+            if ((el.head === null || el.head.type != "blob") &&
+                (el.base === null || el.base.type != "blob"))
                 continue;
 
-            var base = difflib.stringAsLines(this.files[i].base),
-                newtxt = difflib.stringAsLines(this.files[i].update),
+            var base_content = el.base ? el.base.content : "";
+            var head_content = el.head ? el.head.content : "";
+
+            var fname = el.head ? el.head.path : el.base.path;
+
+            var base = difflib.stringAsLines(base_content),
+                newtxt = difflib.stringAsLines(head_content),
                 sm = new difflib.SequenceMatcher(base, newtxt),
                 opcodes = sm.get_opcodes(),
                 contextSize = 5; //byId("contextSize").value;
 
             var filename = document.createElement("DIV");
             filename.className = "file-header";
-            filename.innerText = this.files[i].name;
+            filename.innerText = fname;
 
             content.appendChild(filename);
             contextSize = contextSize || null;
@@ -197,7 +535,7 @@ class Fetcher
                 baseTextName: "Old",
                 newTextName: "New",
                 contextSize: contextSize,
-                viewType: viewType
+                viewType: 0 // 0 for side-by-side
             });
 
             diff.className = diff.className + " blob-wrapper";
@@ -212,8 +550,8 @@ class Fetcher
         content.style.width = "" + (document.documentElement.clientWidth - 30) + "px";
 
         var close_link = document.createElement("A");
-        close_link.href = "#";
-        close_link.onclick = function () { this.parentElement.parentElement.getElementsByClassName("btn")[0].onclick(); return false; };
+        close_link.href = "#" + this.element.id;
+        close_link.onclick = function () { this.parentElement.parentElement.getElementsByClassName("btn")[0].onclick(); };
         close_link.innerText = "Close";
         content.appendChild(close_link);
     }
@@ -230,9 +568,9 @@ function askCredentials ( )
 {
     if(document.getElementById("github-credentials-box"))
         return;
-    
+
     console.log("Asking credentials");
-    
+
     var box = document.createElement("DIV");
     box.style.backgroundColor = "white";
     box.style.position = "fixed";
@@ -248,34 +586,34 @@ function askCredentials ( )
     var textfield_jenkins = document.createElement("INPUT");
 
     textfield_user.type = "text";
-    
+
     var user = GM_getValue("username");
     if (!user)
         user = "Username";
-    
+
     textfield_user.value = user;
     textfield_user.id = "github-user";
 
     var token = GM_getValue("token");
     if (!token)
         token = "Github Token";
-    
+
     textfield_token.type = "text";
     textfield_token.value = token;
     textfield_token.id = "github-token";
-  
+
     var url = GM_getValue("jenkins");
     if (!url)
         url = "Jenkins Base URL";
-  
+
     textfield_jenkins.type = "text";
     textfield_jenkins.value = url;
     textfield_jenkins.id = "jenkins-url";
-    
+
     var note = document.createElement("P");
     note.href = "https://github.com/settings/tokens";
     note.innerHTML = "The token required here can be created at <a href=\"https://github.com/settings/tokens\">your settings page</a>.<br>Required scope is 'repo'.";
-  
+
     var button = document.createElement("BUTTON");
     button.className = "btn";
     button.innerText = "Save";
@@ -458,7 +796,6 @@ function makeTimelineEntry ( time, text, action, id )
     var link = document.createElement("A");
 
     link.className = "btn btn-sm btn-outline";
-    //link.appendChild(document.createTextNode(text));
     link.innerText = "View changes";
     link.onclick = function () { action(this); return false; };
     link.href = "#";
@@ -508,14 +845,19 @@ function fetchUpdates ( )
         url: url,
         onload: function (response) {
             if (response.status == 200)
-                drawButtons(response.responseText);
+                injectTimeline(response.responseText);
             else
                 console.log("No pushes found at "+url+": " + response.status);
         }});
 }
 
-// Draws one button for each pair of shas in the \n separated list
-function drawButtons ( shas )
+/* Injects "Author pushed" events into the PR timeline
+ *
+ * Params:
+ *     shas = list of sha's and unix timestamp pairs. Sha and timestamp are separated by ";".
+ *            Each pair is separated by "\n"
+*/
+function injectTimeline ( shas )
 {
     var sidebar = document.getElementsByClassName("discussion-sidebar")[0];
 
@@ -555,9 +897,13 @@ function drawButtons ( shas )
             var repo  = urlsplit[4];
 
             item.innerText = "Hide changes";
-            
+
             console.log("pressed.. " + inner_base + " " + inner_head);
-            fetcher.start(owner, repo, inner_base, inner_head, item.parentElement);
+
+            var prid_and_anker = document.URL.split("/")[6].split("#");
+            var prid = prid_and_anker[0];
+
+            fetcher.start(owner, repo, prid, inner_base, inner_head, item.parentElement);
         };
         return func;
     }
@@ -596,7 +942,7 @@ function drawButtons ( shas )
     }
 
     console.log("Pairs: " + pairs.length + " last: " + head);
-    
+
     // Next, merge the pairs between reviews/comments
     var timeline_items = getTimelineItems(true, "review");
 
@@ -608,20 +954,20 @@ function drawButtons ( shas )
     var merged_pair = {};
 
     var timeline_it = 0;
-    
+
     // Only try to merge pairs if more than one exists
     if (pairs.length > 1)
     {
         for (i=0; i < pairs.length; i++)
         {
-                // Find the first review that is right before newer than our current 
+                // Find the first review that is right before newer than our current
                 while (pairs[i].time.getTime() > timeline_items[timeline_it] &&
                        timeline_it+1 < timeline_items.length &&
                        pairs[i].time.getTime() > timeline_items[timeline_it+1])
                     timeline_it++;
-            
-                console.log("Comparing " + pairs[i].time + " > " + new Date(timeline_items[timeline_it]) + " " + i + " > " + timeline_it);
-            
+
+                //console.log("Comparing " + pairs[i].time + " > " + new Date(timeline_items[timeline_it]) + " " + i + " > " + timeline_it);
+
                 if (pairs[i].time.getTime() > timeline_items[timeline_it])
                 {
                     if (base_pair === null)
@@ -673,7 +1019,7 @@ function drawButtons ( shas )
     }
 
     console.log("Merged pairs: " + merged_pairs.length);
-    
+
     for (i=0; i < merged_pairs.length; i++)
     {
         var it = merged_pairs[i];
