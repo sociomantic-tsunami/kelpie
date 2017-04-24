@@ -566,6 +566,7 @@ class Fetcher
 
 var fetcher = new Fetcher();
 
+var DefaultURLHelper = "Optional default hash data URL";
 
 
 function deleteYourself ( ) { this.outerHTML = ""; }
@@ -590,7 +591,7 @@ function askCredentials ( )
 
     var textfield_user = document.createElement("INPUT");
     var textfield_token = document.createElement("INPUT");
-    var textfield_jenkins = document.createElement("INPUT");
+    var textfield_hash_data_url = document.createElement("INPUT");
 
     textfield_user.type = "text";
 
@@ -609,13 +610,13 @@ function askCredentials ( )
     textfield_token.value = token;
     textfield_token.id = "github-token";
 
-    var url = GM_getValue("jenkins");
+    var url = GM_getValue("hash_data_url");
     if (!url)
-        url = "Jenkins Base URL";
+        url = DefaultURLHelper;
 
-    textfield_jenkins.type = "text";
-    textfield_jenkins.value = url;
-    textfield_jenkins.id = "jenkins-url";
+    textfield_hash_data_url.type = "text";
+    textfield_hash_data_url.value = url;
+    textfield_hash_data_url.id = "hash-data-url";
 
     var note = document.createElement("P");
     note.href = "https://github.com/settings/tokens";
@@ -630,7 +631,7 @@ function askCredentials ( )
     box.appendChild(textfield_user);
     box.appendChild(textfield_token);
     box.appendChild(document.createElement("BR"));
-    box.appendChild(textfield_jenkins);
+    box.appendChild(textfield_hash_data_url);
     box.appendChild(button);
     box.appendChild(note);
 
@@ -642,16 +643,20 @@ function saveCredentials ( )
 {
     var user = document.getElementById("github-user");
     var token = document.getElementById("github-token");
-    var jenkins = document.getElementById("jenkins-url");
+    var hash_data_url = document.getElementById("hash-data-url");
 
-    jenkins = jenkins.value.trim();
+    if (hash_data_url.value != DefaultURLHelper)
+    {
+        hash_data_url = hash_data_url.value.trim();
 
-    if (jenkins.substr(-1, 1) != "/")
-        jenkins = jenkins + "/";
+        if (hash_data_url.length > 0 && hash_data_url.substr(-1, 1) != "/")
+            hash_data_url = hash_data_url + "/";
+
+        GM_setValue("hash_data_url", hash_data_url);
+    }
 
     GM_setValue("username", user.value.trim());
     GM_setValue("token", token.value.trim());
-    GM_setValue("jenkins", jenkins);
 
     var box = document.getElementById("github-credentials-box");
     box.outerHTML = "";
@@ -830,7 +835,7 @@ function makeButton ( text, action, id )
     sidebar.appendChild(buttondiv);
 }
 
-// Fetches the sha heads from jenkins
+// Fetches the sha heads from hash_data_url
 function fetchUpdates ( base_url )
 {
     var urlsplit = document.URL.split("/");
@@ -1078,7 +1083,7 @@ function render ( )
 {
     'use strict';
 
-    var need_setup = !GM_getValue("username") || !GM_getValue("token") || !GM_getValue("jenkins");
+    var need_setup = !GM_getValue("username") || !GM_getValue("token");
 
     var css_style = GM_getResourceText ("CSSDIFF");
     GM_addStyle (css_style);
@@ -1104,7 +1109,7 @@ function render ( )
     {
         makeButton("Setup Credentials", askCredentials, "credentials-button");
 
-        console.log("Requesting user & token & jenkins");
+        console.log("Requesting user & token & hash_data_url");
         return;
     }
 
@@ -1117,8 +1122,8 @@ function fetchBaseUrl ( )
     {
         if (this.status == 404)
         {
-            console.log("No project specific base URL, using global one: " + GM_getValue("jenkins"));
-            fetchUpdates(GM_getValue("jenkins"));
+            console.log("No project specific base URL, using global one: " + GM_getValue("hash_data_url"));
+            fetchUpdates(GM_getValue("hash_data_url"));
             return;
         }
 
