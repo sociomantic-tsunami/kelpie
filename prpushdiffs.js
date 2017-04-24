@@ -2,6 +2,7 @@
 // @name         Github PR Incremental Diffs
 // @namespace    http://tampermonkey.net/
 // @version      0.20
+// @downloadURL  https://raw.githubusercontent.com/sociomantic-tsunami/kelpie/master/prpushdiffs.js
 // @description  Provides you incremental diffs with the help of an extra server
 // @author       Mathias L. Baumann
 // @match        *://github.com/*
