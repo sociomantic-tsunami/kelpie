@@ -4,7 +4,8 @@
 // @namespace    https://tampermonkey.net/
 // @homepage     https://github.com/sociomantic-tsunami/kelpie
 // @supportURL   https://github.com/sociomantic-tsunami/kelpie/issues
-// @downloadURL  https://raw.githubusercontent.com/sociomantic-tsunami/kelpie/master/prpushdiffs.js
+// @downloadURL  https://raw.githubusercontent.com/sociomantic-tsunami/kelpie/master/incremental-pr-diffs.user.js
+// @updateURL    https://raw.githubusercontent.com/sociomantic-tsunami/kelpie/master/incremental-pr-diffs.meta.js
 // @description  Provides you incremental diffs with the help of an extra server
 // @author       Mathias L. Baumann
 // @match        *://github.com/*
