@@ -14,9 +14,9 @@
 // @grant       GM_addStyle
 // @grant       GM_getResourceText
 // @grant       GM_xmlhttpRequest
-// @require     https://raw.githubusercontent.com/cemerick/jsdifflib/master/difflib.js
-// @require     https://raw.githubusercontent.com/cemerick/jsdifflib/master/diffview.js
-// @resource    CSSDIFF https://raw.githubusercontent.com/cemerick/jsdifflib/master/diffview.css
+// @require     https://cdn.rawgit.com/cemerick/jsdifflib/da7da27640a30537cea9069622dc71600c5a1d61/difflib.js
+// @require     https://cdn.rawgit.com/cemerick/jsdifflib/da7da27640a30537cea9069622dc71600c5a1d61/diffview.js
+// @resource    CSSDIFF https://cdn.rawgit.com/cemerick/jsdifflib/da7da27640a30537cea9069622dc71600c5a1d61/diffview.css
 // ==/UserScript==
 
 class FileTree
