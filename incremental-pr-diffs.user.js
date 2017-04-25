@@ -1090,22 +1090,25 @@ function render ( )
 
     var sidebar = document.getElementById("partial-discussion-sidebar");
 
-    var item = document.createElement("DIV");
-    item.className = "discussion-sidebar-item";
-    item.id = "github-incremental-diffs-sidebar-item";
+    if (sidebar !== null)
+    {
+        var item = document.createElement("DIV");
+        item.className = "discussion-sidebar-item";
+        item.id = "github-incremental-diffs-sidebar-item";
 
-    var button = document.createElement("BUTTON");
-    button.className = "btn btn-sm";
-    button.type = "submit";
+        var button = document.createElement("BUTTON");
+        button.className = "btn btn-sm";
+        button.type = "submit";
 
-    button.appendChild(document.createTextNode("Incremental Diffs Setup"));
-    button.onclick = askCredentials;
+        button.appendChild(document.createTextNode("Incremental Diffs Setup"));
+        button.onclick = askCredentials;
 
-    item.appendChild(button);
+        item.appendChild(button);
 
-    sidebar.appendChild(item);
+        sidebar.appendChild(item);
 
-    fetchBaseUrl();
+        fetchBaseUrl();
+    }
 }
 
 function fetchBaseUrl ( )
