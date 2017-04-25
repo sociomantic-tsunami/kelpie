@@ -1094,24 +1094,16 @@ function render ( )
     item.className = "discussion-sidebar-item";
     item.id = "github-incremental-diffs-sidebar-item";
 
-    var header = document.createElement("H3");
-    header.appendChild(document.createTextNode("Incremental Diffs Active"));
-    header.ondblclick = askCredentials;
+    var button = document.createElement("BUTTON");
+    button.className = "btn btn-sm";
+    button.type = "submit";
 
-    header.className = "discussion-sidebar-heading";
+    button.appendChild(document.createTextNode("Incremental Diffs Setup"));
+    button.onclick = askCredentials;
 
-    item.appendChild(header);
+    item.appendChild(button);
 
     sidebar.appendChild(item);
-
-    // Add button to set up github API access
-    if (need_setup)
-    {
-        makeButton("Setup Credentials", askCredentials, "credentials-button");
-
-        console.log("Requesting user & token & hash_data_url");
-        return;
-    }
 
     fetchBaseUrl();
 }
