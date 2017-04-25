@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Github PR Incremental Diffs
-// @version      0.20
+// @version      0.21
 // @namespace    https://tampermonkey.net/
 // @homepage     https://github.com/sociomantic-tsunami/kelpie
 // @supportURL   https://github.com/sociomantic-tsunami/kelpie/issues
