@@ -345,9 +345,9 @@ class FileDiffer
 
             var content = "content" in response && response.content.length > 0 ? atob(response.content) : "";
 
-            if (el.base.sha == response.sha)
+            if (el.base !== null && el.base.sha == response.sha)
                 el.base.content = content;
-            else if (el.head.sha == response.sha)
+            else if (el.head !=== null && el.head.sha == response.sha)
                 el.head.content = content;
             else
                 console.log("Unmatched sha?!");
