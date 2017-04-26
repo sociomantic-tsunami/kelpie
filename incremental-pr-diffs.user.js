@@ -347,7 +347,7 @@ class FileDiffer
 
             if (el.base !== null && el.base.sha == response.sha)
                 el.base.content = content;
-            else if (el.head !=== null && el.head.sha == response.sha)
+            else if (el.head !== null && el.head.sha == response.sha)
                 el.head.content = content;
             else
                 console.log("Unmatched sha?!");
