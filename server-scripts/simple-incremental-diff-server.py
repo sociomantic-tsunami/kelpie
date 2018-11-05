@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 #
+# Boost Software License 1.0 (https://www.boost.org/LICENSE_1_0.txt)
+# Copyright (c) 2017-2018 dunnhumby Germany GmbH.
+# All rights reserved.
+#
 # Incremental Diff Server
 #
 # For POST requests:
